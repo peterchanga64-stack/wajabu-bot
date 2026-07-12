@@ -14,7 +14,6 @@ async function startBot() {
     });
 
     if (!sock.authState.creds.registered) {
-        // Inasoma namba uliyoweka kule Render kiotomatiki
         const phoneNumber = process.env.BOT_NUMBER; 
         
         if (!phoneNumber) {
@@ -61,18 +60,53 @@ async function startBot() {
             const body = mek.message.conversation || mek.message.extendedTextMessage?.text || '';
             const sender = mek.key.participant || from;
 
+            // 1. AMRI YA JIBU SALAMU
             if (body.toLowerCase() === 'hello' || body.toLowerCase() === 'hi') {
                 await sock.sendMessage(from, { text: 'Hello! How can I help you today?' }, { quoted: mek });
             }
 
-            if (isGroup && (body.includes('http://') || body.includes('https://') || body.includes('www.'))) {
+            // 2. AMRI YA TAG ALL
+            if (isGroup && (body.toLowerCase() === '.tagall' || body.toLowerCase() === '@tagall')) {
                 const groupMetadata = await sock.groupMetadata(from);
                 const participants = groupMetadata.participants;
-                const isAdmin = participants.find(p => p.id === sender)?.admin !== null;
+                
+                let teks = `📢 *WAKOMESHE WOTE! (TAG ALL)*\n\n💬 *Ujumbe:* Amka kume kucha! ✨\n\n`;
+                let mentions = [];
 
-                if (!isAdmin) {
-                    await sock.sendMessage(from, { delete: mek.key });
-                    await sock.sendMessage(from, { text: `⚠️ Samahani, ni ma-admin tu wanaoruhusiwa kutuma link hapa!` });
+                for (let mem of participants) {
+                    teks += `🔹 @${mem.id.split('@')[0]}\n`;
+                    mentions.push(mem.id);
+                }
+
+                await sock.sendMessage(from, { text: teks, mentions: mentions }, { quoted: mek });
+            }
+
+            // 3. ULINZI WA MA-GROUP (Kufuta Links, Mentions, na Matangazo ya Status)
+            if (isGroup) {
+                const textCheck = body.toLowerCase();
+                
+                // Anatafuta links za kawaida
+                const hasLink = body.includes('http://') || body.includes('https://') || body.includes('www.');
+                
+                // Anatafuta herufi ya kutag mtu au link za magrupu ya WhatsApp
+                const hasMentionOrGroupLink = body.includes('@') || textCheck.includes('chat.whatsapp.com');
+                
+                // Anatafuta maneno yanayotumika sana kusave namba na kutag status (Mfano: "save namba", "view status", "status view")
+                const hasStatusSpam = textCheck.includes('status') || textCheck.includes('save namba') || textCheck.includes('kuona status');
+
+                if (hasLink || hasMentionOrGroupLink || hasStatusSpam) {
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const participants = groupMetadata.participants;
+                    const isAdmin = participants.find(p => p.id === sender)?.admin !== null;
+
+                    // Kama mtumaji sio admin, meseji inafutwa haraka sana
+                    if (!isAdmin) {
+                        await sock.sendMessage(from, { delete: mek.key });
+                        await sock.sendMessage(from, { 
+                            text: `⚠️ *Ulinzi wa Grupu:* Samahani @${sender.split('@')[0]}, hapa haoruhusiwi kutuma link, kutag watu, au kupromote mambo ya Status!`, 
+                            mentions: [sender] 
+                        });
+                    }
                 }
             }
         } catch (err) {
