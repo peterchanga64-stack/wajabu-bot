@@ -17,21 +17,21 @@ async function startBot() {
         const phoneNumber = process.env.BOT_NUMBER; 
         
         if (!phoneNumber) {
-            console.log('\n❌ ERROR: Tafadhali weka namba yako ya simu kwenye Render (Environment Variables)!');
+            console.log('\n❌ ERROR: Please set your phone number in Render (Environment Variables)!');
             process.exit(1);
         }
 
         const cleanedNumber = phoneNumber.replace(/[^0-9]/g, '');
-        console.log(`\n======================================\nInaomba Pairing Code kwa ajili ya: ${cleanedNumber}...`);
+        console.log(`\n======================================\nRequesting Pairing Code for: ${cleanedNumber}...`);
         
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(cleanedNumber);
                 code = code?.match(/.{1,4}/g)?.join('-') || code;
-                console.log(`\n🔑 PAIRING CODE YAKO NI: ${code}`);
-                console.log('Ingia WhatsApp -> Linked Devices -> Link with Phone Number kisha weka kodi hiyo!\n======================================');
+                console.log(`\n🔑 YOUR PAIRING CODE IS: ${code}`);
+                console.log('Go to WhatsApp -> Linked Devices -> Link with Phone Number and enter this code!\n======================================');
             } catch (error) {
-                console.error('Imeshindwa kuomba Pairing Code, jaribu tena.', error);
+                console.error('Failed to request pairing code, please try again.', error);
             }
         }, 5000);
     }
@@ -42,10 +42,10 @@ async function startBot() {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-            console.log('Muunganisho umekatika. Inajaribu kuunganisha tena...', shouldReconnect);
+            console.log('Connection closed. Reconnecting...', shouldReconnect);
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('🚀 BOT IMESHANGAA NA IPO ONLINE SASA HIVI!');
+            console.log('🚀 BOT IS SUCCESSFULLY ONLINE AND ACTIVE!');
         }
     });
 
@@ -60,17 +60,17 @@ async function startBot() {
             const body = mek.message.conversation || mek.message.extendedTextMessage?.text || '';
             const sender = mek.key.participant || from;
 
-            // 1. AMRI YA JIBU SALAMU
+            // 1. HELLO / HI COMMAND
             if (body.toLowerCase() === 'hello' || body.toLowerCase() === 'hi') {
                 await sock.sendMessage(from, { text: 'Hello! How can I help you today?' }, { quoted: mek });
             }
 
-            // 2. AMRI YA TAG ALL
+            // 2. TAG ALL COMMAND
             if (isGroup && (body.toLowerCase() === '.tagall' || body.toLowerCase() === '@tagall')) {
                 const groupMetadata = await sock.groupMetadata(from);
                 const participants = groupMetadata.participants;
                 
-                let teks = `📢 *WAKOMESHE WOTE! (TAG ALL)*\n\n💬 *Ujumbe:* Amka kume kucha! ✨\n\n`;
+                let teks = `📢 *ATTENTION EVERYONE! (TAG ALL)*\n\n💬 *Message:* Wake up! Check the group updates. ✨\n\n`;
                 let mentions = [];
 
                 for (let mem of participants) {
@@ -81,17 +81,12 @@ async function startBot() {
                 await sock.sendMessage(from, { text: teks, mentions: mentions }, { quoted: mek });
             }
 
-            // 3. ULINZI WA MA-GROUP (Kufuta Links, Mentions, na Matangazo ya Status)
+            // 3. GROUP SECURITY (Anti-Links, Anti-Mentions, and Anti-Status Spam)
             if (isGroup) {
                 const textCheck = body.toLowerCase();
                 
-                // Anatafuta links za kawaida
                 const hasLink = body.includes('http://') || body.includes('https://') || body.includes('www.');
-                
-                // Anatafuta herufi ya kutag mtu au link za magrupu ya WhatsApp
                 const hasMentionOrGroupLink = body.includes('@') || textCheck.includes('chat.whatsapp.com');
-                
-                // Anatafuta maneno yanayotumika sana kusave namba na kutag status (Mfano: "save namba", "view status", "status view")
                 const hasStatusSpam = textCheck.includes('status') || textCheck.includes('save namba') || textCheck.includes('kuona status');
 
                 if (hasLink || hasMentionOrGroupLink || hasStatusSpam) {
@@ -99,11 +94,11 @@ async function startBot() {
                     const participants = groupMetadata.participants;
                     const isAdmin = participants.find(p => p.id === sender)?.admin !== null;
 
-                    // Kama mtumaji sio admin, meseji inafutwa haraka sana
+                    // If the sender is not an admin, delete the message immediately
                     if (!isAdmin) {
                         await sock.sendMessage(from, { delete: mek.key });
                         await sock.sendMessage(from, { 
-                            text: `⚠️ *Ulinzi wa Grupu:* Samahani @${sender.split('@')[0]}, hapa haoruhusiwi kutuma link, kutag watu, au kupromote mambo ya Status!`, 
+                            text: `⚠️ *Group Security:* Sorry @${sender.split('@')[0]}, only group admins are allowed to share links, tag members, or promote statuses here!`, 
                             mentions: [sender] 
                         });
                     }
