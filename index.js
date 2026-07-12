@@ -3,16 +3,11 @@ const {
     useMultiFileAuthState, 
     DisconnectReason 
 } = require('@whiskeysockets/baileys');
-const { GoogleGenAI } = require('@google/generative-ai');
 const pino = require('pino');
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('session_auth');
-    const apiKey = process.env.GEMINI_API_KEY;
-    const botNumber = process.env.BOT_NUMBER; // Mfano: 2557XXXXXXXX
-
-    const ai = new GoogleGenAI({ apiKey });
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const botNumber = process.env.BOT_NUMBER; // Namba yako uliyoweka Railway (e.g., 2557XXXXXXXX)
 
     const sock = makeWASocket({
         auth: state,
@@ -39,7 +34,7 @@ async function startBot() {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('Chuma imekubali na ipo Connected WhatsApp!');
+            console.log('Ulinzi umewaka rasmi na Chuma ipo Connected!');
         }
     });
 
@@ -58,15 +53,15 @@ async function startBot() {
             
             if (!body) return;
 
-            // 1. ULINZI WA GROUP: KUFUTA WANAO-MENTION GROUP ZIMA (@everyone / @tagall)
+            // ULINZI WA GROUP: KUFUTA WANAO-MENTION GROUP ZIMA au WENYE TAG NYINGI
             if (isGroup) {
                 const mentions = mek.message[type]?.contextInfo?.mentionedJid || [];
                 
-                // Ukaguzi kama ujumbe una tag za watu wengi au neno maalum la mtego
+                // Mtego: Kama mtu ametag watu zaidi ya 5, au ametumia @everyone au @tagall
                 if (mentions.length > 5 || body.includes('@everyone') || body.includes('@tagall')) {
-                    console.log(`Mtego umenaswa! Kufuta tag kutoka: ${mek.key.participant}`);
+                    console.log(`Mtego umenaswa! Kufuta tag zilizotumwa na: ${mek.key.participant}`);
                     
-                    // Futa ujumbe huo hapo hapo
+                    // Futa ujumbe huo papo hapo
                     await sock.sendMessage(from, { 
                         delete: { 
                             remoteJid: from, 
@@ -75,31 +70,15 @@ async function startBot() {
                             participant: mek.key.participant 
                         } 
                     });
-                    return; // Zuia Gemini asijibu huu ujumbe uliyofutwa
                 }
             }
 
-            // 2. CHAT BOT (AI RESPONSE)
-            // Zuia bot isijijibu yenyewe
-            if (mek.key.fromMe) return;
-
-            // Kama ni DM au Bot imetajwa kwenye Group, Gemini anajibu
-            const botId = sock.user.id.split(':')[0];
-            if (!isGroup || body.includes(`@${botId}`)) {
-                // Safisha kodi ya tag kabla ya kutuma kwa Gemini
-                const cleanText = body.replace(`@${botId}`, '').trim();
-                
-                const result = await model.generateContent(cleanText);
-                const response = await result.response;
-                
-                await sock.sendMessage(from, { text: response.text() }, { quoted: mek });
-            }
-
         } catch (err) {
-            console.log('Error kwenye ujumbe: ', err);
+            console.log('Error kwenye ulinzi: ', err);
         }
     });
 }
 
 startBot();
+
 
