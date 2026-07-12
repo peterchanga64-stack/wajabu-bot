@@ -7,7 +7,7 @@ const pino = require('pino');
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('session_auth');
-    const botNumber = process.env.BOT_NUMBER; // Namba yako uliyoweka Railway (e.g., 2557XXXXXXXX)
+    const botNumber = process.env.BOT_NUMBER; // Namba yako ya Railway (mfano: 255XXXXXXXXX)
 
     const sock = makeWASocket({
         auth: state,
@@ -23,7 +23,7 @@ async function startBot() {
             let code = await sock.requestPairingCode(botNumber);
             console.log(`\n====================================`);
             code = code?.match(/.{1,4}/g)?.join('-');
-            console.log(`🔥 CHUMA IPO TAYARI! PAIRING CODE YAKO NI: ${code}`);
+            console.log(`🔥 PAIRING CODE YAKO: ${code}`);
             console.log(`====================================\n`);
         }, 5000);
     }
@@ -34,34 +34,42 @@ async function startBot() {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('Ulinzi umewaka rasmi na Chuma ipo Connected!');
+            console.log('Ulinzi Kamili (Anti-Link + Anti-Mention) umewaka!');
         }
     });
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             const mek = chatUpdate.messages[0];
-            if (!mek.message) return;
+            if (!mek.message || mek.key.fromMe) return; // Zuia bot isijifute yenyewe au kufuta kodi zake
             
             const from = mek.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
             const type = Object.keys(mek.message)[0];
             
-            // Pata maandishi ya ujumbe
             let body = (type === 'conversation') ? mek.message.conversation : 
                        (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
             
-            if (!body) return;
-
-            // ULINZI WA GROUP: KUFUTA WANAO-MENTION GROUP ZIMA au WENYE TAG NYINGI
             if (isGroup) {
+                // Washa 'typing...' status masaa 24 kila ujumbe unapoingia
+                await sock.sendPresenceUpdate('composing', from);
+
+                // 1. UKAGUZI WA MENTIONS
                 const mentions = mek.message[type]?.contextInfo?.mentionedJid || [];
+                const groupMentions = mek.message[type]?.contextInfo?.groupMentions || []; 
                 
-                // Mtego: Kama mtu ametag watu zaidi ya 5, au ametumia @everyone au @tagall
-                if (mentions.length > 5 || body.includes('@everyone') || body.includes('@tagall')) {
-                    console.log(`Mtego umenaswa! Kufuta tag zilizotumwa na: ${mek.key.participant}`);
+                // Mtego wa Mentions na Tag zote
+                const hasMention = mentions.length > 0 || groupMentions.length > 0 || (body && body.includes('@'));
+
+                // 2. UKAGUZI WA LINKS (Anti-Link)
+                // Hapa tunatega kama kuna herufi kama http://, https://, chat.whatsapp.com, au .com/.net/.org hovyo hovyo
+                const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|chat\.whatsapp\.com|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[^\s]*)/gi;
+                const hasLink = body && linkRegex.test(body);
+
+                // KAMA KUNA MENTION AU LINK - CHUMA INAPIGA CHINI HARAKA SANA
+                if (hasMention || hasLink) {
+                    console.log(`Mtego umenaswa! Kufuta ujumbe wenye Link/Mention kutoka: ${mek.key.participant || mek.key.remoteJid}`);
                     
-                    // Futa ujumbe huo papo hapo
                     await sock.sendMessage(from, { 
                         delete: { 
                             remoteJid: from, 
@@ -74,11 +82,12 @@ async function startBot() {
             }
 
         } catch (err) {
-            console.log('Error kwenye ulinzi: ', err);
+            console.log('Error kwenye mfumo wa ulinzi: ', err);
         }
     });
 }
 
 startBot();
+
 
 
