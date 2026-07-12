@@ -1,82 +1,134 @@
 const { 
-    makeWASocket, 
+    default: makeWASocket, 
     useMultiFileAuthState, 
-    DisconnectReason 
+    DisconnectReason,
+    delay
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const fs = require('fs');
 
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_auth');
-    const botNumber = process.env.BOT_NUMBER; // Namba yako uliyoweka Railway (e.g., 2557XXXXXXXX)
+async function launchUltimateShield() {
+    const sessionDir = './session_auth';
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const targetNumber = process.env.BOT_NUMBER; 
 
+    // Advanced configuration to bypass 428 Precondition and routing issues
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' })
+        logger: pino({ level: 'silent' }),
+        browser: ['Mac OS', 'Chrome', '124.0.0.0'], // Emulating stable Desktop Chrome
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 30000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // KUPATA PAIRING CODE KWENYE RAILWAY LOGS
+    // SECURE PAIRING CODE GENERATION INTERFACE
     if (!sock.authState.creds.registered) {
+        // Generous timeout to allow full synchronization with WhatsApp Multi-Device backend
         setTimeout(async () => {
-            let code = await sock.requestPairingCode(botNumber);
-            console.log(`\n====================================`);
-            code = code?.match(/.{1,4}/g)?.join('-');
-            console.log(`🔥 CHUMA IPO TAYARI! PAIRING CODE YAKO NI: ${code}`);
-            console.log(`====================================\n`);
-        }, 5000);
+            try {
+                if (!targetNumber) {
+                    console.error('❌ CONFIGURATION ERROR: BOT_NUMBER environment variable is undefined.');
+                    return;
+                }
+                
+                // Clean phone number input formatting
+                const cleanNumber = targetNumber.replace(/[^0-9]/g, '');
+                console.log(`📡 Requesting secure authentication handshake for terminal: ${cleanNumber}`);
+                
+                let pairingCode = await sock.requestPairingCode(cleanNumber);
+                
+                console.log(`\n=================================================`);
+                pairingCode = pairingCode?.match(/.{1,4}/g)?.join('-');
+                console.log(`🔥 SYSTEM STABLE! PAIRING CODE GENERATED: ${pairingCode}`);
+                console.log(`=================================================\n`);
+            } catch (pairingError) {
+                console.error('⚠️ Critical: Synchronization handshake failed. Purging active environment cache...');
+                if (fs.existsSync(sessionDir)) {
+                    fs.rmSync(sessionDir, { recursive: true, force: true });
+                }
+                console.log('🔄 Session cleared. System restarting deployment sequence...');
+                await delay(3000);
+                process.exit(1); // Forces Railway to restart fresh instantly
+            }
+        }, 12000); // 12 seconds delay provides maximum window for backend allocation
     }
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+    // SYSTEM MATRIX GATEWAY (CONNECTION STABILIZER)
+    sock.ev.on('connection.update', async (connectionUpdate) => {
+        const { connection, lastDisconnect } = connectionUpdate;
+        
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
+            const reasonCode = lastDisconnect?.error?.output?.statusCode;
+            const systemRecovery = reasonCode !== DisconnectReason.loggedOut;
+            
+            console.log(`📉 Network Gateway Dropped. Status: ${reasonCode}. Recovery Pipeline: ${systemRecovery}`);
+            
+            if (systemRecovery) {
+                await delay(5000);
+                launchUltimateShield();
+            } else {
+                console.log('❌ Session permanently revoked by host. Cleaning active storage...');
+                if (fs.existsSync(sessionDir)) {
+                    fs.rmSync(sessionDir, { recursive: true, force: true });
+                }
+                process.exit(1);
+            }
         } else if (connection === 'open') {
-            console.log('Ulinzi umewaka rasmi na Chuma ipo Connected!');
+            console.log('✅ BACKEND STATUS: SUCCESSFUL. Guard Shield Active 24/7.');
         }
     });
 
-    sock.ev.on('messages.upsert', async (chatUpdate) => {
+    // PACKET INTERCEPTOR CORE (ANTI-LINK, ANTI-MENTION & STEALTH TYPING)
+    sock.ev.on('messages.upsert', async (incomingPayload) => {
         try {
-            const mek = chatUpdate.messages[0];
-            if (!mek.message) return;
+            const rawMessage = incomingPayload.messages[0];
+            if (!rawMessage.message || rawMessage.key.fromMe) return; 
             
-            const from = mek.key.remoteJid;
-            const isGroup = from.endsWith('@g.us');
-            const type = Object.keys(mek.message)[0];
+            const chatJid = rawMessage.key.remoteJid;
+            const isGroupTraffic = chatJid.endsWith('@g.us');
+            const messageType = Object.keys(rawMessage.message)[0];
             
-            // Pata maandishi ya ujumbe
-            let body = (type === 'conversation') ? mek.message.conversation : 
-                       (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
+            let messageContent = (messageType === 'conversation') ? rawMessage.message.conversation : 
+                                 (messageType === 'extendedTextMessage') ? rawMessage.message.extendedTextMessage.text : '';
             
-            if (!body) return;
+            if (isGroupTraffic) {
+                // Continuous presence masquerade
+                await sock.sendPresenceUpdate('composing', chatJid);
 
-            // ULINZI WA GROUP: KUFUTA WANAO-MENTION GROUP ZIMA au WENYE TAG NYINGI
-            if (isGroup) {
-                const mentions = mek.message[type]?.contextInfo?.mentionedJid || [];
+                // Extraction of explicit metadata parameters
+                const structuredMentions = rawMessage.message[messageType]?.contextInfo?.mentionedJid || [];
+                const clusterMentions = rawMessage.message[messageType]?.contextInfo?.groupMentions || []; 
                 
-                // Mtego: Kama mtu ametag watu zaidi ya 5, au ametumia @everyone au @tagall
-                if (mentions.length > 5 || body.includes('@everyone') || body.includes('@tagall')) {
-                    console.log(`Mtego umenaswa! Kufuta tag zilizotumwa na: ${mek.key.participant}`);
+                const containsMention = structuredMentions.length > 0 || clusterMentions.length > 0 || (messageContent && messageContent.includes('@'));
+
+                // Comprehensive Regex engine filtering unauthorized digital signatures
+                const linkSignatures = /(https?:\/\/[^\s]+|www\.[^\s]+|chat\.whatsapp\.com|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[^\s]*)/gi;
+                const containsLink = messageContent && linkSignatures.test(messageContent);
+
+                // EXECUTING PURGE PROTOCOL
+                if (containsMention || containsLink) {
+                    console.log(`🛡️ Threat Blocked: Violation detected from client identification scope: ${rawMessage.key.participant || rawMessage.key.remoteJid}`);
                     
-                    // Futa ujumbe huo papo hapo
-                    await sock.sendMessage(from, { 
+                    await sock.sendMessage(chatJid, { 
                         delete: { 
-                            remoteJid: from, 
+                            remoteJid: chatJid, 
                             fromMe: false, 
-                            id: mek.key.id, 
-                            participant: mek.key.participant 
+                            id: rawMessage.key.id, 
+                            participant: rawMessage.key.participant 
                         } 
                     });
                 }
             }
 
-        } catch (err) {
-            console.log('Error kwenye ulinzi: ', err);
+        } catch (runtimeError) {
+            console.error('⚠️ Warning: Packet Dropped inside Guard Module: ', runtimeError.message);
         }
     });
 }
 
-startBot();
+// System Initiation
+launchUltimateShield();
