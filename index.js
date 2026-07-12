@@ -1,9 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, disconnectInversion, fetchLatestBaileysVersion, jidDecode } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const readline = require('readline');
-
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -18,9 +14,16 @@ async function startBot() {
     });
 
     if (!sock.authState.creds.registered) {
-        console.log('\n======================================');
-        const phoneNumber = await question('Andika Namba ya Simu ya Bot (Mfano: 2557XXXXXXXX): ');
+        // Inasoma namba uliyoweka kule Render kiotomatiki
+        const phoneNumber = process.env.BOT_NUMBER; 
+        
+        if (!phoneNumber) {
+            console.log('\n❌ ERROR: Tafadhali weka namba yako ya simu kwenye Render (Environment Variables)!');
+            process.exit(1);
+        }
+
         const cleanedNumber = phoneNumber.replace(/[^0-9]/g, '');
+        console.log(`\n======================================\nInaomba Pairing Code kwa ajili ya: ${cleanedNumber}...`);
         
         setTimeout(async () => {
             try {
@@ -31,7 +34,7 @@ async function startBot() {
             } catch (error) {
                 console.error('Imeshindwa kuomba Pairing Code, jaribu tena.', error);
             }
-        }, 3000);
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -58,23 +61,17 @@ async function startBot() {
             const body = mek.message.conversation || mek.message.extendedTextMessage?.text || '';
             const sender = mek.key.participant || from;
 
-            // 1. Kujibu salamu za kawaida (Hello/Hi)
             if (body.toLowerCase() === 'hello' || body.toLowerCase() === 'hi') {
                 await sock.sendMessage(from, { text: 'Hello! How can I help you today?' }, { quoted: mek });
             }
 
-            // 2. Kuzuia Link kwenye Magrupu
             if (isGroup && (body.includes('http://') || body.includes('https://') || body.includes('www.'))) {
                 const groupMetadata = await sock.groupMetadata(from);
                 const participants = groupMetadata.participants;
-                
-                // Angalia kama aliyetuma link ni Admin
                 const isAdmin = participants.find(p => p.id === sender)?.admin !== null;
 
                 if (!isAdmin) {
-                    // Futa ujumbe (Delete link)
                     await sock.sendMessage(from, { delete: mek.key });
-                    // Toa onyo
                     await sock.sendMessage(from, { text: `⚠️ Samahani, ni ma-admin tu wanaoruhusiwa kutuma link hapa!` });
                 }
             }
