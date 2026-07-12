@@ -1,47 +1,79 @@
 const { 
     makeWASocket, 
     useMultiFileAuthState, 
-    DisconnectReason 
+    DisconnectReason,
+    delay
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const fs = require('fs');
 
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_auth');
-    const botNumber = process.env.BOT_NUMBER; // Namba yako ya Railway (mfano: 255XXXXXXXXX)
+async function initializeGuardBot() {
+    const sessionPath = './session_auth';
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    
+    // Retrieve environment variables from Railway
+    const botNumber = process.env.BOT_NUMBER; 
 
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' })
+        logger: pino({ level: 'silent' }),
+        browser: ['Ubuntu', 'Chrome', '20.0.04']
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // KUPATA PAIRING CODE KWENYE RAILWAY LOGS
+    // GENERATE PAIRING CODE WITH DELAY TO PREVENT 428 ERROR
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
-            let code = await sock.requestPairingCode(botNumber);
-            console.log(`\n====================================`);
-            code = code?.match(/.{1,4}/g)?.join('-');
-            console.log(`🔥 PAIRING CODE YAKO: ${code}`);
-            console.log(`====================================\n`);
-        }, 5000);
+            try {
+                if (!botNumber) {
+                    console.error('❌ ERROR: BOT_NUMBER variable is missing in Railway Settings!');
+                    return;
+                }
+                let code = await sock.requestPairingCode(botNumber.trim());
+                console.log(`\n====================================`);
+                code = code?.match(/.{1,4}/g)?.join('-');
+                console.log(`🔥 SYSTEM READY! YOUR PAIRING CODE IS: ${code}`);
+                console.log(`====================================\n`);
+            } catch (err) {
+                console.error('❌ Failed to generate pairing code. Retrying deployment...', err.message);
+                // Clear corrupt session folder if pairing fails
+                if (fs.existsSync(sessionPath)) {
+                    fs.rmSync(sessionPath, { recursive: true, force: true });
+                }
+            }
+        }, 8000); // 8 seconds delay gives Baileys enough time to handshake with WhatsApp servers
     }
 
-    sock.ev.on('connection.update', (update) => {
+    // CONNECTION HANDLER
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            console.log(`📡 Connection closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+            
+            if (shouldReconnect) {
+                await delay(5000); // Wait 5 seconds before reconnecting
+                initializeGuardBot();
+            } else {
+                console.log('❌ Session logged out. Cleaning session files...');
+                if (fs.existsSync(sessionPath)) {
+                    fs.rmSync(sessionPath, { recursive: true, force: true });
+                }
+            }
         } else if (connection === 'open') {
-            console.log('Ulinzi Kamili (Anti-Link + Anti-Mention) umewaka!');
+            console.log('✅ SUCCESS: Security Shield Active and Connected to WhatsApp!');
         }
     });
 
+    // ULTIMATE GUARD SYSTEM (ANTI-LINK & ANTI-MENTION)
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             const mek = chatUpdate.messages[0];
-            if (!mek.message || mek.key.fromMe) return; // Zuia bot isijifute yenyewe au kufuta kodi zake
+            if (!mek.message || mek.key.fromMe) return; // Ignore empty messages and self-messages
             
             const from = mek.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
@@ -51,24 +83,21 @@ async function startBot() {
                        (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
             
             if (isGroup) {
-                // Washa 'typing...' status masaa 24 kila ujumbe unapoingia
+                // Force 24/7 Typing Status for maximum stealth
                 await sock.sendPresenceUpdate('composing', from);
 
-                // 1. UKAGUZI WA MENTIONS
+                // 1. MENTION DETECTION ENGINE
                 const mentions = mek.message[type]?.contextInfo?.mentionedJid || [];
                 const groupMentions = mek.message[type]?.contextInfo?.groupMentions || []; 
-                
-                // Mtego wa Mentions na Tag zote
                 const hasMention = mentions.length > 0 || groupMentions.length > 0 || (body && body.includes('@'));
 
-                // 2. UKAGUZI WA LINKS (Anti-Link)
-                // Hapa tunatega kama kuna herufi kama http://, https://, chat.whatsapp.com, au .com/.net/.org hovyo hovyo
+                // 2. ANTI-LINK DETECTION ENGINE
                 const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|chat\.whatsapp\.com|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[^\s]*)/gi;
                 const hasLink = body && linkRegex.test(body);
 
-                // KAMA KUNA MENTION AU LINK - CHUMA INAPIGA CHINI HARAKA SANA
+                // ACTION TRIGGER: INSTANTLY DELETE IF TRAFFIC VIOLATES RULES
                 if (hasMention || hasLink) {
-                    console.log(`Mtego umenaswa! Kufuta ujumbe wenye Link/Mention kutoka: ${mek.key.participant || mek.key.remoteJid}`);
+                    console.log(`🛡️ Threat Detected! Purging message from: ${mek.key.participant || mek.key.remoteJid}`);
                     
                     await sock.sendMessage(from, { 
                         delete: { 
@@ -82,12 +111,13 @@ async function startBot() {
             }
 
         } catch (err) {
-            console.log('Error kwenye mfumo wa ulinzi: ', err);
+            console.error('⚠️ Error inside Guard Module: ', err.message);
         }
     });
 }
 
-startBot();
+initializeGuardBot();
+
 
 
 
